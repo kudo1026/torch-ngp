@@ -516,12 +516,12 @@ class Trainer(object):
         if self.use_tensorboardX and self.local_rank == 0:
             self.writer = tensorboardX.SummaryWriter(os.path.join(self.workspace, "run", self.name))
 
-        # mark untrained region (i.e., not covered by any camera from the training dataset)
-        if self.model.cuda_ray:
-            self.model.mark_untrained_grid(train_loader._data.poses, train_loader._data.intrinsics)
+        # # mark untrained region (i.e., not covered by any camera from the training dataset)
+        # if self.model.cuda_ray:
+        #     self.model.mark_untrained_grid(train_loader._data.poses, train_loader._data.intrinsics)
 
-        # get a ref to error_map
-        self.error_map = train_loader._data.error_map
+        # # get a ref to error_map
+        # self.error_map = train_loader._data.error_map
         
         for epoch in range(self.epoch, max_epochs + 1):
             self.epoch = epoch

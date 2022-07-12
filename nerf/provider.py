@@ -330,3 +330,54 @@ class NeRFDataset:
         loader._data = self # an ugly fix... we need to access error_map & poses in trainer.
         loader.has_gt = self.images is not None
         return loader
+
+
+class DreamDataset:
+    def __init__(self, opt, device, type='train', H=128, W=128, radius=3, fovy=90, size=100, **kwargs):
+        super().__init__()
+        
+        self.opt = opt
+        self.device = device
+        self.type = type # train, val, test
+
+        self.H = H
+        self.W = W
+        self.radius = radius
+        self.fovy = fovy
+        self.size = size
+
+        self.training = self.type in ['train', 'all']
+        self.num_rays = self.opt.num_rays if self.training else -1
+
+        fl_y = self.H / (2 * np.tan(np.radians(self.fovy) / 2))
+        fl_x = fl_y
+        cx = self.H / 2
+        cy = self.W / 2
+        self.intrinsics = np.array([fl_x, fl_y, cx, cy])
+
+        # [debug] visualize poses
+        #poses = rand_poses(100, 'cpu', radius=self.radius).detach().numpy()
+        #visualize_poses(poses)
+
+
+    def collate(self, index):
+
+        B = len(index) # always 1
+
+        # random pose
+        poses = rand_poses(B, self.device, radius=self.radius)
+
+        # sample a low-resolution but full image for CLIP
+        rays = get_rays(poses, self.intrinsics, self.H, self.W, -1)
+
+        return {
+            'H': self.H,
+            'W': self.W,
+            'rays_o': rays['rays_o'],
+            'rays_d': rays['rays_d'],    
+        }
+
+    def dataloader(self):
+        loader = DataLoader(list(range(self.size)), batch_size=1, collate_fn=self.collate, shuffle=self.training, num_workers=0)
+        loader._data = self # an ugly fix... we need to access error_map & poses in trainer.
+        return loader
