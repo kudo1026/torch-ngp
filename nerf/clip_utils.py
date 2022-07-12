@@ -19,6 +19,8 @@ class CLIPLoss:
         for p in self.clip_model.parameters():
             p.requires_grad = False
 
+        self.gaussian_blur = T.GaussianBlur(15, sigma=(0.1, 10))
+
         # image augmentation
         self.transform = T.Compose([
             T.Resize((224, 224)),

@@ -124,6 +124,18 @@ def seed_everything(seed):
     #torch.backends.cudnn.benchmark = True
 
 
+def get_checkerboard(fg, n=8):
+    B, _, H, W = fg.shape
+    colors = torch.rand(2, B, 3, 1, 1, 1, 1, dtype=fg.dtype, device=fg.device)
+    h = H // n
+    w = W // n
+    bg = torch.ones(B, 3, n, h, n, w, dtype=fg.dtype, device=fg.device) * colors[0]
+    bg[:, :, ::2, :, 1::2] = colors[1]
+    bg[:, :, 1::2, :, ::2] = colors[1]
+    bg = bg.view(B, 3, H, W)
+    return bg
+
+
 def torch_vis_2d(x, renormalize=False):
     # x: [3, H, W] or [1, H, W] or [H, W]
     import matplotlib.pyplot as plt
@@ -378,11 +390,51 @@ class Trainer(object):
             # currently fix white bg, MUST force all rays!
             outputs = self.model.render(rays_o, rays_d, staged=False, bg_color=None, perturb=True, force_all_rays=True, **vars(self.opt))
             pred_rgb = outputs['image'].reshape(B, H, W, 3).permute(0, 3, 1, 2).contiguous()
+            pred_ws = outputs['weights_sum'].reshape(B, 1, H, W)
+            mask_ws = outputs['mask'].reshape(B, 1, H, W) # near < far
 
             # [debug] uncomment to plot the images used in train_step
             #torch_vis_2d(pred_rgb[0])
 
-            loss = self.clip_loss(pred_rgb)
+            # add background randomization
+            # make N copies for different augmentations... (WARN OOM)
+            # pred_rgb = pred_rgb.unsqueeze(0).repeat(self.opt.aug_copy, 1, 1, 1, 1).view(self.opt.aug_copy * B, 3, H, W)
+
+            # moved random bg composition here.
+            # TODO: fft bg...
+            # TODO: differnt bg_type for different local copies?
+            bg_type = random.random()
+            if bg_type > 0.5:
+                bg_color = torch.rand_like(pred_rgb) # pixel-wise random.
+            else:
+                bg_color = get_checkerboard(pred_rgb, 8) # checker board random.
+
+            # random blur bg
+            bg_color = self.clip_loss.gaussian_blur(bg_color)
+
+            pred_rgb = pred_rgb + (1 - pred_ws) * bg_color
+            loss_clip = self.clip_loss(pred_rgb)
+
+            # transmittance loss
+            pred_tr = (1 - pred_ws) * mask_ws # [B, 1, H, W], T = 1 - weights_sum
+            mean_tr = pred_tr.sum() / mask_ws.sum()
+
+            # exponentially anneal (0.5 --> 0.8 in 500 steps)
+            tau_t = np.minimum(self.global_step / self.opt.tau_step, 1.0)
+            tau = np.exp(np.log(self.opt.tau_0) * (1 - tau_t) + np.log(self.opt.tau_1) * tau_t)
+
+            #torch_vis_2d(pred_tr[0].reshape(H, W))
+
+            loss_tr = - torch.clamp(mean_tr, max=tau).mean()
+            
+            # origin loss
+            origin_thresh = 0 # self.opt.bound * 0.5 ** 2 # if origin is inside sphere(bound/2), no need to further regularize
+            loss_origin = torch.clamp((outputs['origin'] ** 2).sum(), min=origin_thresh)
+
+            loss = loss_clip + 0.5 * loss_tr + loss_origin
+            # loss = loss_clip + 0.5 * loss_tr
+            # loss = loss_clip + 0.25 * loss_tr
+            # loss = loss_clip + 0.1 * loss_tr
             
             return pred_rgb, None, loss
 
@@ -448,6 +500,25 @@ class Trainer(object):
 
         rays_o = data['rays_o'] # [B, N, 3]
         rays_d = data['rays_d'] # [B, N, 3]
+
+        # if there is no gt image, just use model outputs.
+        if 'images' not in data:
+
+            B, N = rays_o.shape[:2]
+            H, W = data['H'], data['W']
+
+            # currently fix white bg, MUST force all rays!
+            outputs = self.model.render(rays_o, rays_d, staged=False, bg_color=None, perturb=True, force_all_rays=True, **vars(self.opt))
+            pred_rgb = outputs['image'].reshape(B, H, W, 3).permute(0, 3, 1, 2).contiguous()
+            pred_depth = outputs['depth'].reshape(B, H, W).contiguous()
+
+            # [debug] uncomment to plot the images used in train_step
+            #torch_vis_2d(pred_rgb[0])
+
+            loss = self.clip_loss(pred_rgb)
+            
+            return pred_rgb, pred_depth, None, loss
+
         images = data['images'] # [B, H, W, 3/4]
         B, H, W, C = images.shape
 
@@ -846,9 +917,12 @@ class Trainer(object):
                     if self.opt.color_space == 'linear':
                         preds = linear_to_srgb(preds)
 
-                    pred = preds[0].detach().cpu().numpy()
+                    pred = preds[0].permute(1,2,0).detach().cpu().numpy()
                     pred_depth = preds_depth[0].detach().cpu().numpy()
                     
+                    # print('pred rgb shape: ', pred.shape)
+                    # print('pred_depth shape: ', pred_depth.shape)
+
                     cv2.imwrite(save_path, cv2.cvtColor((pred * 255).astype(np.uint8), cv2.COLOR_RGB2BGR))
                     cv2.imwrite(save_path_depth, (pred_depth * 255).astype(np.uint8))
                     #cv2.imwrite(save_path_gt, cv2.cvtColor((linear_to_srgb(truths[0].detach().cpu().numpy()) * 255).astype(np.uint8), cv2.COLOR_RGB2BGR))

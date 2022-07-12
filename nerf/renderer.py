@@ -99,6 +99,10 @@ class NeRFRenderer(nn.Module):
             self.register_buffer('step_counter', step_counter)
             self.mean_count = 0
             self.local_step = 0
+
+        # ema origin
+        origin = torch.zeros(3, dtype=torch.float32)
+        self.register_buffer('origin', origin)
     
     def forward(self, x, d):
         raise NotImplementedError()
@@ -366,10 +370,25 @@ class NeRFRenderer(nn.Module):
             image = image.view(*prefix, 3)
             depth = depth.view(*prefix)
 
-        return {
+        mask = (nears < fars).reshape(*prefix)
+
+        # tracking origin (assert B == 1)
+        sigmas = sigmas.unsqueeze(-1) # [M, 1]
+        total_sigma = sigmas.sum(dim=0, keepdim=True) # [1, 1]
+        cur_origin = (xyzs * sigmas / total_sigma).sum(dim=0) # [M, 3] --> [3]
+        self.origin = 0.999 * self.origin + 0.001 * cur_origin.detach()
+
+        results = {
             'depth': depth,
             'image': image,
+            'weights_sum': weights_sum,
+            'mask': mask,
         }
+
+        if self.training:
+            results['origin'] = cur_origin
+
+        return results
 
     @torch.no_grad()
     def mark_untrained_grid(self, poses, intrinsic, S=64):

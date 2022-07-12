@@ -92,7 +92,7 @@ def rand_poses(size, device, radius=1, theta_range=[np.pi/3, 2*np.pi/3], phi_ran
 
 
 class NeRFDataset:
-    def __init__(self, opt, device, type='train', downscale=1, n_test=10):
+    def __init__(self, opt, device, type='train', downscale=1, n_test=50):
         super().__init__()
         
         self.opt = opt
@@ -342,6 +342,8 @@ class DreamDataset:
 
         self.H = H
         self.W = W
+        # self.H = opt.h
+        # self.W = opt.w
         self.radius = radius
         self.fovy = fovy
         self.size = size
@@ -362,7 +364,10 @@ class DreamDataset:
 
     def collate(self, index):
 
-        B = len(index) # always 1
+        # print('collate index: ', index)
+        # B = len(index) # always 1
+
+        B = len(index)
 
         # random pose
         poses = rand_poses(B, self.device, radius=self.radius)
@@ -377,7 +382,8 @@ class DreamDataset:
             'rays_d': rays['rays_d'],    
         }
 
-    def dataloader(self):
-        loader = DataLoader(list(range(self.size)), batch_size=1, collate_fn=self.collate, shuffle=self.training, num_workers=0)
+    def dataloader(self, batch_size=1):
+        loader = DataLoader(list(range(self.size)), batch_size=batch_size, collate_fn=self.collate, shuffle=self.training, num_workers=0)
         loader._data = self # an ugly fix... we need to access error_map & poses in trainer.
+        loader.has_gt = False
         return loader
