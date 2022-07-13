@@ -13,6 +13,7 @@ import time
 from datetime import datetime
 
 import cv2
+from PIL import Image
 import matplotlib.pyplot as plt
 
 import torch
@@ -135,6 +136,15 @@ def get_checkerboard(fg, n=8):
     bg = bg.view(B, 3, H, W)
     return bg
 
+def save_gif(img_list, save_path, duration=100):
+    def from_array_to_PIL(array):
+        return Image.fromarray(np.uint8(array*255))
+
+    im0 = from_array_to_PIL(img_list[0])
+    rest_list = [from_array_to_PIL(img) for img in img_list[1:]]
+
+    im0.save(save_path, save_all=True, append_images=rest_list, duration=duration)
+    print(save_path + ' saved!')
 
 def torch_vis_2d(x, renormalize=False):
     # x: [3, H, W] or [1, H, W] or [H, W]
@@ -873,6 +883,9 @@ class Trainer(object):
 
         with torch.no_grad():
             self.local_step = 0
+            if self.opt.gif: 
+                save_rgb_for_gif_list = []
+                save_depth_for_gif_list = []
 
             for data in loader:    
                 self.local_step += 1
@@ -923,6 +936,10 @@ class Trainer(object):
                     # print('pred rgb shape: ', pred.shape)
                     # print('pred_depth shape: ', pred_depth.shape)
 
+                    if self.opt.gif:
+                        save_rgb_for_gif_list.append(pred)
+                        save_depth_for_gif_list.append(pred_depth)
+
                     cv2.imwrite(save_path, cv2.cvtColor((pred * 255).astype(np.uint8), cv2.COLOR_RGB2BGR))
                     cv2.imwrite(save_path_depth, (pred_depth * 255).astype(np.uint8))
                     #cv2.imwrite(save_path_gt, cv2.cvtColor((linear_to_srgb(truths[0].detach().cpu().numpy()) * 255).astype(np.uint8), cv2.COLOR_RGB2BGR))
@@ -930,6 +947,11 @@ class Trainer(object):
                     pbar.set_description(f"loss={loss_val:.4f} ({total_loss/self.local_step:.4f})")
                     pbar.update(loader.batch_size)
 
+        if self.opt.gif:
+            rgb_gif_save_path = os.path.join(self.workspace, 'validation', f'{name}_rgb.gif')
+            save_gif(img_list=save_rgb_for_gif_list, save_path=rgb_gif_save_path)
+            depth_gif_save_path = os.path.join(self.workspace, 'validation', f'{name}_depth.gif')
+            save_gif(img_list=save_depth_for_gif_list, save_path=depth_gif_save_path)
 
         average_loss = total_loss / self.local_step
         self.stats["valid_loss"].append(average_loss)

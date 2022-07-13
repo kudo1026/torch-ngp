@@ -68,7 +68,8 @@ if __name__ == '__main__':
     parser.add_argument('--tau_1', type=float, default=0.8, help="target mean transparency 1")
     parser.add_argument('--tau_step', type=float, default=500, help="steps to anneal from tau_0 to tau_1")
     parser.add_argument('--network', type=str, default='hash', help="type of NeRF networks, mlp or hash.")
-    
+    parser.add_argument('--gif', action='store_true', help="make outputs to gif")
+
     opt = parser.parse_args()
 
     from nerf.network import NeRFNetwork
