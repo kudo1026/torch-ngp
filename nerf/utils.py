@@ -143,7 +143,7 @@ def save_gif(img_list, save_path, duration=100):
     im0 = from_array_to_PIL(img_list[0])
     rest_list = [from_array_to_PIL(img) for img in img_list[1:]]
 
-    im0.save(save_path, save_all=True, append_images=rest_list, duration=duration)
+    im0.save(save_path, save_all=True, append_images=rest_list, duration=duration, loop=0)
     print(save_path + ' saved!')
 
 def torch_vis_2d(x, renormalize=False):
@@ -441,10 +441,9 @@ class Trainer(object):
             origin_thresh = 0 # self.opt.bound * 0.5 ** 2 # if origin is inside sphere(bound/2), no need to further regularize
             loss_origin = torch.clamp((outputs['origin'] ** 2).sum(), min=origin_thresh)
 
-            loss = loss_clip + 0.5 * loss_tr + loss_origin
-            # loss = loss_clip + 0.5 * loss_tr
-            # loss = loss_clip + 0.25 * loss_tr
-            # loss = loss_clip + 0.1 * loss_tr
+            # loss = loss_clip + 0.5 * loss_tr + loss_origin
+            loss = loss_clip + 0.1 * loss_tr + 10.0 * loss_origin
+            # loss = loss_clip + 0.1 * loss_tr + loss_origin
             
             return pred_rgb, None, loss
 
